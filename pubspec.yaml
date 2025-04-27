@@ -1,25 +1,30 @@
 name: ponto_salario_app
 description: A Flutter app to manage point and salary details.
 
-publish_to: 'none' # Remove this line if you want to publish to the App Store or Google Play
+publish_to: 'none'
 
 version: 1.0.0+1
 
 environment:
-  sdk: ">=2.17.0 <3.0.0"
+  sdk: ">=3.0.0 <4.0.0" # Atualizado para Flutter 3.x
 
 dependencies:
   flutter:
     sdk: flutter
-  intl: ^0.18.1  # Biblioteca para formatação de data
-  shared_preferences: ^2.2.2  # Adicionando a dependência do shared_preferences
+  cupertino_icons: ^1.0.6
+  provider: ^6.1.3          # Versão mais recente estável
+  json_annotation: ^4.8.1   # Mantido para compatibilidade
+  uuid: ^3.0.7              # Versão estável
+  intl: ^0.18.1             # Compatível com Flutter 3.x
+  shared_preferences: ^2.2.5 # Versão mais recente
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  build_runner: ^2.4.4      # Compatível com json_serializable 6.7.x
+  json_serializable: ^6.7.1 # Mantido para evitar breaking changes
 
 flutter:
   uses-material-design: true
-
-  
-
+  assets:
+    - assets/                # Pasta para imagens/icones (opcional)

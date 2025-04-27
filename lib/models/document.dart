@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart'
 
 class Document {
   final String title;
@@ -20,9 +21,9 @@ class Document {
     );
   }
 
-  String toJson() {
-    return '$title|${expirationDate.toIso8601String()}|${creationDate.toIso8601String()}';
-  }
+  String formattedExpirationDate() {
+  return DateFormat('dd/MM/yyyy').format(expirationDate);
+}
 
   int get daysRemaining => expirationDate.difference(DateTime.now()).inDays;
   bool get isExpired => daysRemaining < 0;

@@ -121,6 +121,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: doc.statusColor.withOpacity(0.3)),
+      ),
       child: Padding(
         padding: EdgeInsets.all(16),
         child: Column(
