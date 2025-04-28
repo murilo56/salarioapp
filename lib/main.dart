@@ -1,35 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:salarioapp/pages/home_page.dart';
-import 'models/document.dart';
-import 'models/expense.dart';
-import 'providers/document_provider.dart';
-import 'providers/expense_provider.dart';
+import 'package:ponto_salario/screens/home_page.dart';
+import 'package:ponto_salario/screens/settings_page.dart';
+import 'package:ponto_salario/screens/documents_page.dart';
+import 'package:ponto_salario/screens/finance_page.dart';
 
 void main() {
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (ctx) => DocumentProvider()),
-        ChangeNotifierProvider(create: (ctx) => ExpenseProvider()),
-      ],
-      child: const MyApp(),
-    ),
-  );
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Salario App',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      routes: {
-        '/add-document': (ctx) => AddDocumentPage(),
-        '/settings': (ctx) => SettingsPage(),
-      },
+      debugShowCheckedModeBanner: false,
+      title: 'Ponto Salário App',
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        primaryColor: Colors.teal,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+      ),
       home: HomePage(),
     );
   }

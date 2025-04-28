@@ -1,4 +1,4 @@
-name: ponto_salario_app
+name: ponto_salario
 description: A Flutter app to manage point and salary details.
 
 publish_to: 'none'
