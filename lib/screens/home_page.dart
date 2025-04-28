@@ -7,6 +7,7 @@ import 'documents_page.dart';
 import 'finance_page.dart';
 import 'reports_page.dart';
 import 'settings_page.dart';
+import 'autonomous_services_page.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -384,125 +385,142 @@ DataCell _buildTimeCell(BuildContext context, String field, Map<String, dynamic>
   }
 
   @override
-  Widget build(BuildContext context) {
-    double monthlyEarnings = _tableData.fold<double>(0.0, (sum, day) {
-      final valueStr = (day["valor"] as String).replaceAll('¥', '');
-      return sum + (double.tryParse(valueStr) ?? 0);
-    });
+Widget build(BuildContext context) {
+  double monthlyEarnings = _tableData.fold<double>(0.0, (sum, day) {
+    final valueStr = (day["valor"] as String).replaceAll('¥', '');
+    return sum + (double.tryParse(valueStr) ?? 0);
+  });
 
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 80,
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.chevron_left, color: Colors.white),
-              onPressed: () {
-                setState(() {
-                  _currentDisplayedMonth = DateTime(
-                    _currentDisplayedMonth.year,
-                    _currentDisplayedMonth.month - 1);
-                  _loadSavedData();
-                });
-              },
-            ),
-            Text(
-              DateFormat('MMMM y', 'pt_BR').format(_currentDisplayedMonth),
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.chevron_right, color: Colors.white),
-              onPressed: () {
-                setState(() {
-                  _currentDisplayedMonth = DateTime(
-                    _currentDisplayedMonth.year,
-                    _currentDisplayedMonth.month + 1);
-                  _loadSavedData();
-                });
-              },
-            ),
-          ],
-        ),
-      ),
-      body: Container(
-        child: SingleChildScrollView(
-          scrollDirection: Axis.vertical,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              columnSpacing: 0,
-              horizontalMargin: 0,
-              headingRowHeight: 40,
-              dataRowHeight: 40,
-              columns: [
-                DataColumn(label: _buildHeader('Data', 60)),
-                DataColumn(label: _buildHeader('Entrada', 70)),
-                DataColumn(label: _buildHeader('Saída', 70)),
-                DataColumn(label: _buildHeader('Pausa', 70)),
-                DataColumn(label: _buildHeader('Horas', 70)),
-                DataColumn(label: _buildHeader('Valor', 70)),
-              ],
-              rows: _tableData.map((data) => _buildDataRow(context, data)).toList(),
+  return Scaffold(
+    appBar: AppBar(
+      toolbarHeight: 80,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      centerTitle: true,
+      title: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left, color: Colors.white),
+            onPressed: () {
+              setState(() {
+                _currentDisplayedMonth = DateTime(
+                  _currentDisplayedMonth.year,
+                  _currentDisplayedMonth.month - 1,
+                );
+                _loadSavedData();
+              });
+            },
+          ),
+          Text(
+            DateFormat('MMMM y', 'pt_BR').format(_currentDisplayedMonth),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
             ),
           ),
-        ),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        selectedItemColor: Colors.blue,
-        unselectedItemColor: Colors.grey[400],
-        selectedLabelStyle: const TextStyle(color: Colors.blue),
-        onTap: (index) {
-          setState(() => _currentIndex = index);
-          if (index == 1) {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => DocumentsPage()));
-          } else if (index == 2) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => FinancePage(monthlyEarnings: monthlyEarnings),
-              ),
-            );
-          } else if (index == 3) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ReportsPage(monthlyEarnings: monthlyEarnings),
-              ),
-            );
-          } else if (index == 4) {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsPage()))
-              .then((_) => _loadSavedData());
-          }
-        },
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Início',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.description),
-            label: 'Documentos',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.attach_money),
-            label: 'Finanças',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.bar_chart),
-            label: 'Relatórios',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Configurações',
+          IconButton(
+            icon: const Icon(Icons.chevron_right, color: Colors.white),
+            onPressed: () {
+              setState(() {
+                _currentDisplayedMonth = DateTime(
+                  _currentDisplayedMonth.year,
+                  _currentDisplayedMonth.month + 1,
+                );
+                _loadSavedData();
+              });
+            },
           ),
         ],
       ),
-    );
-  }
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.handyman, color: Colors.white),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const AutonomousServicesPage(),
+              ),
+            );
+          },
+        ),
+      ],
+    ),
+    body: Container(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.vertical,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columnSpacing: 0,
+            horizontalMargin: 0,
+            headingRowHeight: 40,
+            dataRowHeight: 40,
+            columns: [
+              DataColumn(label: _buildHeader('Data', 60)),
+              DataColumn(label: _buildHeader('Entrada', 70)),
+              DataColumn(label: _buildHeader('Saída', 70)),
+              DataColumn(label: _buildHeader('Pausa', 70)),
+              DataColumn(label: _buildHeader('Horas', 70)),
+              DataColumn(label: _buildHeader('Valor', 70)),
+            ],
+            rows: _tableData.map((data) => _buildDataRow(context, data)).toList(),
+          ),
+        ),
+      ),
+    ),
+    bottomNavigationBar: BottomNavigationBar(
+      currentIndex: _currentIndex,
+      selectedItemColor: Colors.blue,
+      unselectedItemColor: Colors.grey[400],
+      selectedLabelStyle: const TextStyle(color: Colors.blue),
+      onTap: (index) {
+        setState(() => _currentIndex = index);
+        if (index == 1) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => DocumentsPage()));
+        } else if (index == 2) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FinancePage(monthlyEarnings: monthlyEarnings),
+            ),
+          );
+        } else if (index == 3) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ReportsPage(monthlyEarnings: monthlyEarnings),
+            ),
+          );
+        } else if (index == 4) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsPage()))
+            .then((_) => _loadSavedData());
+        }
+      },
+      items: const [
+        BottomNavigationBarItem(
+          icon: Icon(Icons.home),
+          label: 'Início',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.description),
+          label: 'Documentos',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.attach_money),
+          label: 'Finanças',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.bar_chart),
+          label: 'Relatórios',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.settings),
+          label: 'Configurações',
+        ),
+      ],
+    ),
+  );
 }
