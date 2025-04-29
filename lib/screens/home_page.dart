@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:math';
 import 'documents_page.dart';
 import 'finance_page.dart';
 import 'reports_page.dart';
@@ -21,12 +22,26 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _tableData = [];
   int _remainingPaidLeave = 0;
   Set<DateTime> _usedLeaveDates = {};
+  Set<DateTime> _absentDates = {};
+  bool _autoFillRestTime = false;
+  int _restMinutes = 0;
+  List<Map<String, String>> _shifts = [];
+  String _userName = '';
+  bool _showCongrats = false;
 
   @override
   void initState() {
     super.initState();
     _initializeLocale();
     _loadSavedData();
+    _loadUserName();
+  }
+
+  Future<void> _loadUserName() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _userName = prefs.getString('name') ?? '';
+    });
   }
 
   Future<void> _initializeLocale() async {
@@ -53,6 +68,7 @@ class _HomePageState extends State<HomePage> {
         "horas": "",
         "valor": "",
         "isPaidLeave": _usedLeaveDates.contains(day),
+        "isAbsent": _absentDates.contains(day),
       };
     });
   }
@@ -62,7 +78,9 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _hourlyRate = prefs.getString('hourlyRate') ?? '';
       _remainingPaidLeave = prefs.getInt('paidLeaveDays') ?? 0;
-      
+      _autoFillRestTime = prefs.getBool('autoFillRestTime') ?? false;
+      _restMinutes = prefs.getInt('restMinutes') ?? 0;
+
       final savedLeaveDates = prefs.getStringList('usedLeaveDates') ?? [];
       _usedLeaveDates = savedLeaveDates.map((dateStr) {
         try {
@@ -71,6 +89,20 @@ class _HomePageState extends State<HomePage> {
           return DateTime.now();
         }
       }).where((date) => date != null).cast<DateTime>().toSet();
+
+      final savedAbsentDates = prefs.getStringList('absentDates') ?? [];
+      _absentDates = savedAbsentDates.map((dateStr) {
+        try {
+          return DateTime.parse(dateStr);
+        } catch (e) {
+          return DateTime.now();
+        }
+      }).where((date) => date != null).cast<DateTime>().toSet();
+
+      final savedShifts = prefs.getString('shifts') ?? '[]';
+      _shifts = (json.decode(savedShifts) as List)
+          .map((item) => Map<String, String>.from(item))
+          .toList();
 
       final savedTable = prefs.getString('tableData_${_currentDisplayedMonth.month}_${_currentDisplayedMonth.year}');
       if (savedTable != null) {
@@ -92,417 +124,243 @@ class _HomePageState extends State<HomePage> {
             "horas": item['horas'] as String? ?? '',
             "valor": item['valor'] as String? ?? '',
             "isPaidLeave": item['isPaidLeave'] as bool? ?? false,
+            "isAbsent": item['isAbsent'] as bool? ?? false,
           };
         }).toList();
-      } else {
-        _tableData = _generateDaysOfMonth(_currentDisplayedMonth);
       }
     });
   }
 
-  Future<void> _saveAllData() async {
+  Future<void> _saveTableData() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('hourlyRate', _hourlyRate);
-    
-    final tableDataToSave = _tableData.map((item) => {
-      "date": (item["date"] as DateTime).toIso8601String(),
-      "data": item["data"],
-      "entrada": item["entrada"],
-      "saida": item["saida"],
-      "descanso": item["descanso"],
-      "horas": item["horas"],
-      "valor": item["valor"],
-      "isPaidLeave": item["isPaidLeave"],
-    }).toList();
-    
-    await prefs.setString(
-      'tableData_${_currentDisplayedMonth.month}_${_currentDisplayedMonth.year}',
-      json.encode(tableDataToSave)
-    );
-    
-    await prefs.setStringList(
-      'usedLeaveDates', 
-      _usedLeaveDates.map((date) => date.toIso8601String()).toList()
-    );
+    final encodedData = json.encode(_tableData.map((item) {
+      return {
+        'date': item['date'].toString(),
+        'data': item['data'],
+        'entrada': item['entrada'],
+        'saida': item['saida'],
+        'descanso': item['descanso'],
+        'horas': item['horas'],
+        'valor': item['valor'],
+        'isPaidLeave': item['isPaidLeave'],
+        'isAbsent': item['isAbsent'],
+      };
+    }).toList());
+    await prefs.setString('tableData_${_currentDisplayedMonth.month}_${_currentDisplayedMonth.year}', encodedData);
   }
 
-  Future<void> _selectTime(BuildContext context, String timeField, int index) async {
-    TimeOfDay initialTime = _tableData[index][timeField]!.isEmpty
-        ? TimeOfDay.now()
-        : TimeOfDay(
-            hour: int.parse(_tableData[index][timeField]!.split(":")[0]),
-            minute: int.parse(_tableData[index][timeField]!.split(":")[1]),
-          );
-
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: initialTime,
-    );
-
-    if (picked != null) {
-      setState(() {
-        _tableData[index][timeField] = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-        _tableData[index]["horas"] = _calculateHours(index);
-        _tableData[index]["valor"] = _calculateDailyValue(index);
-        _saveAllData();
-      });
+  void _navigateToPage(int index) {
+    switch (index) {
+      case 0:
+        break;
+      case 1:
+        Navigator.push(context, MaterialPageRoute(builder: (context) => ReportsPage()));
+        break;
+      case 2:
+        Navigator.push(context, MaterialPageRoute(builder: (context) => FinancePage()));
+        break;
+      case 3:
+        Navigator.push(context, MaterialPageRoute(builder: (context) => DocumentsPage()));
+        break;
+      case 4:
+        Navigator.push(context, MaterialPageRoute(builder: (context) => SettingsPage()));
+        break;
     }
   }
 
-  String _calculateHours(int index) {
-    if (_tableData[index]["entrada"]!.isEmpty || _tableData[index]["saida"]!.isEmpty) {
-      return "";
+  Color _getRowColor(Map<String, dynamic> dayData) {
+    if (dayData['isPaidLeave'] == true) {
+      return Colors.blue!;
+    } else if (dayData['isAbsent'] == true) {
+      return Colors.red!;
+    } else if (dayData['entrada'].toString().isEmpty || dayData['saida'].toString().isEmpty) {
+      return Colors.grey!;
     }
-
-    try {
-      final entradaParts = _tableData[index]["entrada"]!.split(':');
-      final saidaParts = _tableData[index]["saida"]!.split(':');
-      final descansoParts = _tableData[index]["descanso"]!.isEmpty 
-          ? ['0', '0'] 
-          : _tableData[index]["descanso"]!.split(':');
-
-      final entradaHour = int.parse(entradaParts[0]);
-      final entradaMinute = int.parse(entradaParts[1]);
-      final saidaHour = int.parse(saidaParts[0]);
-      final saidaMinute = int.parse(saidaParts[1]);
-      final descansoHour = int.parse(descansoParts[0]);
-      final descansoMinute = int.parse(descansoParts[1]);
-
-      int totalMinutes;
-
-      if (saidaHour < entradaHour || (saidaHour == entradaHour && saidaMinute < entradaMinute)) {
-        totalMinutes = ((24 * 60) - (entradaHour * 60 + entradaMinute)) + 
-            (saidaHour * 60 + saidaMinute) - 
-            (descansoHour * 60 + descansoMinute);
-      } else {
-        totalMinutes = (saidaHour * 60 + saidaMinute) - 
-            (entradaHour * 60 + entradaMinute) - 
-            (descansoHour * 60 + descansoMinute);
-      }
-
-      if (totalMinutes <= 0) return "0:00";
-      
-      int hours = totalMinutes ~/ 60;
-      int minutes = totalMinutes % 60;
-      
-      return '$hours:${minutes.toString().padLeft(2, '0')}';
-    } catch (e) {
-      return "0:00";
-    }
+    return Colors.white;
   }
 
-  String _calculateDailyValue(int index) {
-    if (_tableData[index]["horas"]!.isEmpty || _hourlyRate.isEmpty) {
-      return "";
-    }
-
-    try {
-      final hoursParts = _tableData[index]["horas"]!.split(':');
-      final hours = int.parse(hoursParts[0]);
-      final minutes = int.parse(hoursParts[1]);
-      final totalHours = hours + (minutes / 60);
-      final baseRate = double.parse(_hourlyRate);
-
-      double nightHours = 0;
-      double normalHours = totalHours;
-
-      if (_tableData[index]["entrada"]!.isNotEmpty && _tableData[index]["saida"]!.isNotEmpty) {
-        final entradaParts = _tableData[index]["entrada"]!.split(':');
-        final saidaParts = _tableData[index]["saida"]!.split(':');
-        
-        final entradaHour = int.parse(entradaParts[0]);
-        final saidaHour = int.parse(saidaParts[0]);
-
-        if (saidaHour >= 22 || entradaHour < 5 || saidaHour < 5) {
-          nightHours = totalHours;
-          normalHours = 0;
-        }
-      }
-
-      double value = (normalHours * baseRate) + (nightHours * baseRate * 1.25);
-      return '¥${value.toStringAsFixed(0)}';
-    } catch (e) {
-      return "¥0";
-    }
-  }
-
-  void _showPaidLeaveDialog(DateTime date, bool isAdding) async {
-    final prefs = await SharedPreferences.getInstance();
-    final remaining = prefs.getInt('paidLeaveDays') ?? 0;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isAdding ? 'Usar folga remunerada?' : 'Remover folga remunerada?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Dias restantes: ${isAdding ? remaining : remaining + 1}'),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancelar'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    _togglePaidLeave(date, isAdding);
-                    prefs.setInt('paidLeaveDays', remaining + (isAdding ? -1 : 1));
-                    Navigator.pop(context);
-                  },
-                  child: Text(isAdding ? 'Confirmar' : 'Remover'),
-                ),
-              ],
-            )
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _togglePaidLeave(DateTime date, bool isAdding) {
-    setState(() {
-      final normalizedDate = DateTime(date.year, date.month, date.day);
-      if (isAdding) {
-        _usedLeaveDates.add(normalizedDate);
-        _remainingPaidLeave--;
-      } else {
-        _usedLeaveDates.remove(normalizedDate);
-        _remainingPaidLeave++;
-      }
-      
-      _tableData = _tableData.map((day) {
-        final dayDate = day["date"] as DateTime;
-        if (dayDate.year == normalizedDate.year &&
-            dayDate.month == normalizedDate.month &&
-            dayDate.day == normalizedDate.day) {
-          return {...day, "isPaidLeave": isAdding};
-        }
-        return day;
-      }).toList();
-    });
-    _saveAllData();
-  }
-
-  Widget _buildHeader(String text, double width) {
-    return Container(
-      width: width,
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        border: Border(right: BorderSide(color: Colors.grey[600]!, width: 1)),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(fontSize: 12, color: Colors.white),
-      ),
-    );
-  }
-
-  DataCell _buildTimeCell(BuildContext context, String field, Map<String, dynamic> data) {
-    return DataCell(
-      GestureDetector(
-        onTap: () => _selectTime(context, field, _tableData.indexOf(data)),
-        child: Container(
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            border: Border(right: BorderSide(color: Colors.grey[600]!, width: 1)),
-          ),
+  Widget _buildHeaderCell(String text) {
+    return TableCell(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: Center(
           child: Text(
-            data[field]!.isEmpty ? "--:--" : data[field]!,
-            style: const TextStyle(fontSize: 12, color: Colors.white),
+            text,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
           ),
         ),
       ),
     );
   }
 
-  DataRow _buildDataRow(BuildContext context, Map<String, dynamic> data) {
-    final date = data["date"] as DateTime;
-    final isPaidLeave = data["isPaidLeave"] as bool;
-    final isWeekend = date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
+  Widget _buildDataCell(String text) {
+    return TableCell(
+      verticalAlignment: TableCellVerticalAlignment.middle,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6.0),
+        child: Center(
+          child: Text(
+            text,
+            style: const TextStyle(fontSize: 12),
+          ),
+        ),
+      ),
+    );
+  }
 
-    return DataRow(
-      cells: [
-        DataCell(
-          GestureDetector(
-            onTap: () {
-              if (isPaidLeave) {
-                _showPaidLeaveDialog(date, false);
-              } else {
-                _showPaidLeaveDialog(date, true);
-              }
-            },
-            child: Container(
-              width: 60,
-              alignment: Alignment.center,
-              child: Text(
-                data["data"],
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isWeekend ? Colors.red : (isPaidLeave ? Colors.blue : Colors.white),
-                ),
-              ),
-            ),
-          ),
-        ),
-        _buildTimeCell(context, "entrada", data),
-        _buildTimeCell(context, "saida", data),
-        _buildTimeCell(context, "descanso", data),
-        DataCell(
-          Container(
-            width: 70,
-            alignment: Alignment.center,
-            child: Text(
-              data["horas"]!.isEmpty ? "--:--" : data["horas"]!,
-              style: const TextStyle(fontSize: 12, color: Colors.white),
-            ),
-          ),
-        ),
-        DataCell(
-          Container(
-            width: 70,
-            alignment: Alignment.center,
-            child: Text(
-              data["valor"]!.isEmpty ? "¥0" : data["valor"]!,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.amber,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ),
+  TableRow _buildTableRow(Map<String, dynamic> dayData) {
+    Color rowColor = _getRowColor(dayData);
+    
+    return TableRow(
+      decoration: BoxDecoration(color: rowColor),
+      children: [
+        _buildDataCell(dayData['data'].toString()),
+        _buildDataCell(dayData['entrada'].toString()),
+        _buildDataCell(dayData['saida'].toString()),
+        _buildDataCell(dayData['descanso'].toString()),
+        _buildDataCell(dayData['horas'].toString()),
+        _buildDataCell(dayData['valor'].toString()),
       ],
-      color: MaterialStateProperty.resolveWith<Color>((states) {
-        if (isPaidLeave) return Colors.blue.withOpacity(0.2);
-        return Colors.transparent;
-      }),
+    );
+  }
+
+  Widget _buildOptimizedTable() {
+    return Expanded(
+      child: Column(
+        children: [
+          Table(
+            border: TableBorder.all(color: Colors.grey, width: 0.5),
+            columnWidths: const {
+              0: FixedColumnWidth(40),
+              1: FixedColumnWidth(70),
+              2: FixedColumnWidth(70),
+              3: FixedColumnWidth(60),
+              4: FixedColumnWidth(60),
+              5: FixedColumnWidth(70),
+            },
+            children: [
+              TableRow(
+                decoration: BoxDecoration(color: Colors.grey),
+                children: [
+                  _buildHeaderCell('Dia'),
+                  _buildHeaderCell('Entr.'),
+                  _buildHeaderCell('Saída'),
+                  _buildHeaderCell('Desc.'),
+                  _buildHeaderCell('Horas'),
+                  _buildHeaderCell('Valor'),
+                ],
+              ),
+            ],
+          ),
+          
+          Expanded(
+            child: SingleChildScrollView(
+              child: Table(
+                border: TableBorder.all(color: Colors.grey, width: 0.5),
+                defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                columnWidths: const {
+                  0: FixedColumnWidth(40),
+                  1: FixedColumnWidth(70),
+                  2: FixedColumnWidth(70),
+                  3: FixedColumnWidth(60),
+                  4: FixedColumnWidth(60),
+                  5: FixedColumnWidth(70),
+                },
+                children: _tableData.map((dayData) => _buildTableRow(dayData)).toList(),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    double monthlyEarnings = _tableData.fold<double>(0.0, (sum, day) {
-      final valueStr = (day["valor"] as String).replaceAll('¥', '');
-      return sum + (double.tryParse(valueStr) ?? 0);
-    });
-
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 80,
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.chevron_left, color: Colors.white),
-              onPressed: () {
-                setState(() {
-                  _currentDisplayedMonth = DateTime(
-                    _currentDisplayedMonth.year,
-                    _currentDisplayedMonth.month - 1);
-                  _loadSavedData();
-                });
-              },
-            ),
-            Text(
-              DateFormat('MMMM y', 'pt_BR').format(_currentDisplayedMonth),
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.chevron_right, color: Colors.white),
-              onPressed: () {
-                setState(() {
-                  _currentDisplayedMonth = DateTime(
-                    _currentDisplayedMonth.year,
-                    _currentDisplayedMonth.month + 1);
-                  _loadSavedData();
-                });
-              },
-            ),
-          ],
-        ),
+        title: Text('Controle de Ponto - ${DateFormat('MMMM yyyy', 'pt_BR').format(_currentDisplayedMonth)}'),
       ),
-      body: Container(
-        child: SingleChildScrollView(
-          scrollDirection: Axis.vertical,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              columnSpacing: 0,
-              horizontalMargin: 0,
-              headingRowHeight: 40,
-              dataRowHeight: 40,
-              columns: [
-                DataColumn(label: _buildHeader('Data', 60)),
-                DataColumn(label: _buildHeader('Entrada', 70)),
-                DataColumn(label: _buildHeader('Saída', 70)),
-                DataColumn(label: _buildHeader('Pausa', 70)),
-                DataColumn(label: _buildHeader('Horas', 70)),
-                DataColumn(label: _buildHeader('Valor', 70)),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                IconButton(
+                  icon: Icon(Icons.arrow_back),
+                  onPressed: () {
+                    setState(() {
+                      _currentDisplayedMonth = DateTime(_currentDisplayedMonth.year, _currentDisplayedMonth.month - 1);
+                      _generateTableData();
+                    });
+                  },
+                ),
+                Text(
+                  'Férias restantes: $_remainingPaidLeave dias',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  icon: Icon(Icons.arrow_forward),
+                  onPressed: () {
+                    setState(() {
+                      _currentDisplayedMonth = DateTime(_currentDisplayedMonth.year, _currentDisplayedMonth.month + 1);
+                      _generateTableData();
+                    });
+                  },
+                ),
               ],
-              rows: _tableData.map((data) => _buildDataRow(context, data)).toList(),
             ),
           ),
-        ),
+          
+          _buildOptimizedTable(),
+          
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _saveTableData();
+                      _showCongrats = true;
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Dados salvos com sucesso!')),
+                    );
+                  },
+                  child: Text('Salvar'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _tableData = _generateDaysOfMonth(_currentDisplayedMonth);
+                    });
+                  },
+                  child: Text('Limpar'),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        selectedItemColor: Colors.blue,
-        unselectedItemColor: Colors.grey[400],
-        selectedLabelStyle: const TextStyle(color: Colors.blue),
-        onTap: (index) {
-          setState(() => _currentIndex = index);
-          if (index == 1) {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => DocumentsPage()));
-          } else if (index == 2) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => FinancePage(monthlyEarnings: monthlyEarnings),
-              ),
-            );
-          } else if (index == 3) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ReportsPage(monthlyEarnings: monthlyEarnings),
-              ),
-            );
-          } else if (index == 4) {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsPage()))
-              .then((_) => _loadSavedData());
-          }
-        },
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Início',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.description),
-            label: 'Documentos',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.attach_money),
-            label: 'Finanças',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.bar_chart),
-            label: 'Relatórios',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Configurações',
-          ),
+        items: [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Início'),
+          BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Relatórios'),
+          BottomNavigationBarItem(icon: Icon(Icons.attach_money), label: 'Financeiro'),
+          BottomNavigationBarItem(icon: Icon(Icons.description), label: 'Documentos'),
+          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Configurações'),
         ],
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+          _navigateToPage(index);
+        },
       ),
     );
   }

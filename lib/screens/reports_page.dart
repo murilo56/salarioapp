@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
+import 'package:flutter/services.dart';
 
 class ReportsPage extends StatefulWidget {
   final double monthlyEarnings;
+  final List<Map<String, dynamic>> installmentPurchases;
 
-  const ReportsPage({super.key, required this.monthlyEarnings});
+  const ReportsPage({super.key, required this.monthlyEarnings, required this.installmentPurchases});
 
   @override
   State<ReportsPage> createState() => _ReportsPageState();
@@ -16,22 +18,28 @@ class _ReportsPageState extends State<ReportsPage> {
   final _notesController = TextEditingController();
   final List<Map<String, dynamic>> _goals = [];
   final _goalFormKey = GlobalKey<FormState>();
-  double _variableExpenses = 0;
-  String _totalHours = '0';
+  String _totalHours = '0:00';
+  int _paidLeaveDaysUsed = 0;
+  int _absentDays = 0;
+  DateTime _currentDisplayedMonth = DateTime.now();
+  double _totalExpenses = 0;
+  double _closingBalance = 0;
+  List<Map<String, dynamic>> _installments = [];
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    _installments = widget.installmentPurchases;
   }
 
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _variableExpenses = prefs.getDouble('variableExpenses') ?? 0;
       _notesController.text = prefs.getString('notes') ?? '';
       final goals = prefs.getStringList('goals') ?? [];
       
+      _goals.clear();
       _goals.addAll(goals.map((goal) {
         final map = json.decode(goal) as Map<String, dynamic>;
         return {
@@ -43,13 +51,53 @@ class _ReportsPageState extends State<ReportsPage> {
         };
       }));
       
-      _totalHours = prefs.getString('totalHours') ?? '0';
+      _totalHours = '0:00';
+      _paidLeaveDaysUsed = 0;
+      _absentDays = 0;
+
+      final savedTable = prefs.getString('tableData_${_currentDisplayedMonth.month}_${_currentDisplayedMonth.year}');
+      if (savedTable != null) {
+        final List<dynamic> decodedData = json.decode(savedTable);
+        double totalMinutes = 0;
+        
+        for (var day in decodedData) {
+          if (day['horas'] != null && day['horas'].toString().isNotEmpty && day['horas'] != "--:--") {
+            try {
+              final parts = day['horas'].toString().split(':');
+              final hours = int.parse(parts[0]);
+              final minutes = int.parse(parts[1]);
+              totalMinutes += hours * 60 + minutes;
+            } catch (e) {}
+          }
+          
+          if (day['isPaidLeave'] == true) {
+            _paidLeaveDaysUsed++;
+          }
+          
+          if (day['isAbsent'] == true) {
+            _absentDays++;
+          }
+        }
+        
+        final totalHours = totalMinutes ~/ 60;
+        final remainingMinutes = totalMinutes % 60;
+        _totalHours = '$totalHours:${remainingMinutes.toString().padLeft(2, '0')}';
+      }
+
+      final financeData = prefs.getString('finance_report_${_currentDisplayedMonth.month}_${_currentDisplayedMonth.year}');
+      if (financeData != null) {
+        final data = json.decode(financeData);
+        _totalExpenses = data['totalExpenses'] ?? 0;
+        _closingBalance = data['closingBalance'] ?? 0;
+      } else {
+        _totalExpenses = 0;
+        _closingBalance = 0;
+      }
     });
   }
 
   Future<void> _saveData() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble('variableExpenses', _variableExpenses);
     await prefs.setString('notes', _notesController.text);
     
     await prefs.setStringList('goals', _goals.map((g) {
@@ -62,8 +110,6 @@ class _ReportsPageState extends State<ReportsPage> {
       };
       return json.encode(encodedGoal);
     }).toList());
-    
-    await prefs.setString('totalHours', _totalHours);
   }
 
   void _addGoal(String title, double target, DateTime deadline) {
@@ -86,10 +132,16 @@ class _ReportsPageState extends State<ReportsPage> {
     _saveData();
   }
 
+  void _deleteGoal(int index) {
+    setState(() {
+      _goals.removeAt(index);
+    });
+    _saveData();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final totalExpenses = _variableExpenses;
-    final balance = widget.monthlyEarnings - totalExpenses;
+    final balance = widget.monthlyEarnings;
     
     return Scaffold(
       appBar: AppBar(title: const Text('Relatórios e Metas')),
@@ -98,9 +150,11 @@ class _ReportsPageState extends State<ReportsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildSummarySection(balance, totalExpenses),
+            _buildSummarySection(balance),
             const SizedBox(height: 20),
             _buildGoalsSection(),
+            const SizedBox(height: 20),
+            _buildInstallmentsSection(),
             const SizedBox(height: 20),
             _buildNotesSection(),
           ],
@@ -109,26 +163,60 @@ class _ReportsPageState extends State<ReportsPage> {
     );
   }
 
-  Widget _buildSummarySection(double balance, double totalExpenses) {
+  Widget _buildSummarySection(double balance) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            const Text('Resumo Mensal', style: TextStyle(
-              fontSize: 18, 
-              fontWeight: FontWeight.bold,
-              color: Colors.white
-            )),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.chevron_left),
+                  onPressed: () {
+                    setState(() {
+                      _currentDisplayedMonth = DateTime(
+                        _currentDisplayedMonth.year,
+                        _currentDisplayedMonth.month - 1);
+                      _loadData();
+                    });
+                  },
+                ),
+                Expanded(
+                  child: Text(
+                    'Resumo Mensal - ${DateFormat('MMMM y', 'pt_BR').format(_currentDisplayedMonth)}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 18, 
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right),
+                  onPressed: () {
+                    setState(() {
+                      _currentDisplayedMonth = DateTime(
+                        _currentDisplayedMonth.year,
+                        _currentDisplayedMonth.month + 1);
+                      _loadData();
+                    });
+                  },
+                ),
+              ],
+            ),
             const SizedBox(height: 10),
-            _buildSummaryItem('Horas trabalhadas', '$_totalHours horas', color: Colors.white),
-            _buildSummaryItem('Ganhos totais', '¥${widget.monthlyEarnings.toStringAsFixed(2)}', color: Colors.white),
-            _buildSummaryItem('Gastos Variáveis', '¥${_variableExpenses.toStringAsFixed(2)}', color: Colors.red),
-            _buildSummaryItem('Gastos totais', '¥${totalExpenses.toStringAsFixed(2)}', color: Colors.red),
+            _buildSummaryItem('Horas trabalhadas', _totalHours, color: Colors.white),
+            _buildSummaryItem('Ganhos totais', '¥${_currentDisplayedMonth.month == DateTime.now().month ? balance.toStringAsFixed(2) : "0.00"}', color: Colors.white),
+            _buildSummaryItem('Despesas totais', '¥${_totalExpenses.toStringAsFixed(2)}', color: Colors.red),
+            _buildSummaryItem('Folgas Remuneradas', '$_paidLeaveDaysUsed dia(s)', color: Colors.blue),
+            _buildSummaryItem('Faltas', '$_absentDays dia(s)', color: Colors.red),
             _buildSummaryItem(
-              'Saldo disponível', 
-              '¥${balance.toStringAsFixed(2)}',
-              color: balance >= 0 ? Colors.green : Colors.red
+              'Saldo final', 
+              '¥${_closingBalance.toStringAsFixed(2)}',
+              color: _closingBalance >= 0 ? Colors.green : Colors.red
             ),
           ],
         ),
@@ -189,6 +277,10 @@ class _ReportsPageState extends State<ReportsPage> {
         onPressed: () => _showDepositDialog(index),
       ),
       title: Text(goal['title']),
+      trailing: IconButton(
+        icon: const Icon(Icons.delete, color: Colors.red),
+        onPressed: () => _deleteGoal(index),
+      ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -199,6 +291,46 @@ class _ReportsPageState extends State<ReportsPage> {
           Text('Prazo: ${DateFormat('dd/MM/yyyy').format(goal['deadline'])} '
                '($daysLeft dias restantes)',
                style: TextStyle(color: daysLeft < 0 ? Colors.red : null)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInstallmentsSection() {
+    if (_installments.isEmpty) return SizedBox.shrink();
+
+    return Card(
+      child: ExpansionTile(
+        title: const Text('Compras Parceladas', style: TextStyle(fontSize: 16)),
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: _installments.map((purchase) {
+                final totalMonths = purchase['totalMonths'];
+                final currentMonth = purchase['currentMonth'];
+                final remainingMonths = totalMonths - currentMonth;
+                final monthlyPayment = purchase['amount'] / totalMonths;
+                final remainingAmount = purchase['amount'] - (monthlyPayment * currentMonth);
+
+                return ListTile(
+                  title: Text(purchase['description']),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Valor total: ¥${purchase['amount'].toStringAsFixed(2)}'),
+                      Text('Parcela mensal: ¥${monthlyPayment.toStringAsFixed(2)}'),
+                      Text('Mês atual: $currentMonth/$totalMonths'),
+                      Text('Valor restante: ¥${remainingAmount.toStringAsFixed(2)}'),
+                      LinearProgressIndicator(
+                        value: currentMonth / totalMonths,
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
         ],
       ),
     );
@@ -253,8 +385,19 @@ class _ReportsPageState extends State<ReportsPage> {
                       TextFormField(
                         controller: targetController,
                         decoration: const InputDecoration(labelText: 'Valor Alvo (¥)'),
-                        keyboardType: TextInputType.number,
-                        validator: (value) => value!.isEmpty ? 'Insira um valor' : null,
+                        keyboardType: TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+                        ],
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Insira um valor';
+                          }
+                          if (double.tryParse(value) == null) {
+                            return 'Insira um valor válido';
+                          }
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 10),
                       ListTile(
@@ -310,7 +453,10 @@ class _ReportsPageState extends State<ReportsPage> {
         title: const Text('Depositar Valor'),
         content: TextFormField(
           controller: amountController,
-          keyboardType: TextInputType.number,
+          keyboardType: TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+          ],
           decoration: const InputDecoration(
             labelText: 'Valor a depositar (¥)',
             border: OutlineInputBorder(),
